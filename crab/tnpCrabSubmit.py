@@ -18,7 +18,6 @@ os.system('(git log -n 1;git diff) &> /eos/cms/%s/git.log' % mainOutputDir)
 #
 # Common CRAB settings
 #
-from WMCore.Configuration import Configuration
 from CRABClient.UserUtilities import config
 config = config()
 
