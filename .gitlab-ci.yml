@@ -1,0 +1,68 @@
+stages:
+    - greetings
+    - build
+    - run
+    - plot
+    - test
+cache:
+    key: one-key-to-rule-them-all
+
+test:
+    stage: test
+    #image: cmsopendata/cmssw_10_6_8_patch1
+    #image: cmssw/slc6:latest
+    image: gitlab-registry.cern.ch/clange/cmssw-docker/slc6-cms:latest
+    #image: cmssw/cmssw:CMSSW_10_2_18
+    tags: 
+        - cvmfs
+    script:
+        - printf "${KRB_PASSWORD}" | base64 -d | kinit -f ${KRB_USERNAME}@CERN.CH
+        - klist
+        - set -o xtrace # Print command before executing it - easier for looking at logs
+        - set -o errexit # make your script exit when a command fails.
+        - set -o pipefail # exit status of the last command that threw a non-zero exit code is returned
+        - shopt -s expand_aliases
+        - ls /cvmfs/cms.cern.ch/
+        - WORKDIR=$(pwd)
+        - MAKEFLAGS="-j $(grep -c ^processor /proc/cpuinfo)"
+        - git config --global user.name "Siqi Yuan"
+        - git config --global user.email "a@b.c"
+        - git config --global user.github "test"
+        - source /cvmfs/cms.cern.ch/cmsset_default.sh
+        - export SCRAM_ARCH=slc6_amd64_gcc700
+        - CMSSW_VERSION=CMSSW_10_2_10
+        - export CMS_PATH=/cvmfs/cms-ib.cern.ch/
+        - export CMSSW_GIT_REFERENCE=$WORKDIR/cmssw.git
+        - mkdir ~/.globus
+        - printf "${PEMUSERCERT}" | base64 -d > ~/.globus/usercert.pem
+        - printf "${PEMUSERKEY}" | base64 -d > ~/.globus/userkey.pem
+        - chmod 400 ~/.globus/*
+        - printf "${VOMSPASSWD}" | voms-proxy-init --voms cms --pwstdin
+        - voms-proxy-info --all
+        - cd /builds/
+        - cmsrel $CMSSW_VERSION
+        - cd $CMSSW_VERSION/src
+        - eval "$(scramv1 runtime -sh)"
+        - scram build $MAKEFLAGS
+        - mkdir EgammaAnalysis
+        - cp -R $WORKDIR EgammaAnalysis/TnPTreeProducer
+        - cd EgammaAnalysis/TnPTreeProducer
+        - eval `scramv1 runtime -sh`
+        - scram b -j 4
+        - cmsRun python/TnPTreeProducer_cfg.py era=2017 isMC=True maxEvents=200
+    after_script:
+        - mv TnPTree_mc.root $WORKDIR/
+    artifacts:
+        paths:
+            - TnPTree_mc.root
+
+check_code:
+    image: gitlab-registry.cern.ch/computersecurity/security-services-code-checking:latest
+    stage: test
+    script: 
+        - pylint python/TnPTreeProducer_cfg.py
+        - pychecker python/TnPTreeProducer_cfg.py
+        - echo done code checkiing #don't fail job because of code check issues, just log the result
+    only:
+        changes: 
+            - TnPTreeProducer_cfg.py
